@@ -21,21 +21,21 @@ class AimAI:
         self.running = False
         self.shots_fired = 0
         self.last_positions = deque(maxlen=5)
+        self.debug = True  # Save debug images
         
         # Detection settings
-        self.min_target_size = 8
-        self.max_target_size = 200
+        self.min_target_size = 6
+        self.max_target_size = 250
         self.aim_offset_x = 0
         self.aim_offset_y = 0
-        self.smoothing = 0.4
-        self.click_delay = 0.08
+        self.smoothing = 0.35
+        self.click_delay = 0.07
         
-        # Broader yellow/gold range for LibreAim
-        self.lower_yellow = np.array([10, 50, 100])
-        self.upper_yellow = np.array([45, 255, 255])
+        # Wide yellow/gold range (LibreAim spheres are golden yellow)
+        self.lower_yellow = np.array([8, 40, 80])
+        self.upper_yellow = np.array([50, 255, 255])
         
     def get_screen(self):
-        """Capture the primary monitor"""
         monitor = self.sct.monitors[1]
         screenshot = self.sct.grab(monitor)
         img = np.array(screenshot)
@@ -43,18 +43,21 @@ class AimAI:
         return img, monitor
     
     def detect_targets(self, img):
-        """Detect yellow spherical targets"""
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         
-        # Yellow mask
+        # Yellow/gold mask
         mask = cv2.inRange(hsv, self.lower_yellow, self.upper_yellow)
         
-        # Clean up
-        kernel = np.ones((3, 3), np.uint8)
+        # Clean up noise
+        kernel = np.ones((5, 5), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         
-        # Find contours
+        # Debug: save mask occasionally
+        if self.debug and int(time.time()) % 3 == 0:
+            cv2.imwrite("/tmp/aim_debug_mask.png", mask)
+            cv2.imwrite("/tmp/aim_debug_screen.png", img)
+        
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         targets = []
@@ -64,7 +67,7 @@ class AimAI:
                 perimeter = cv2.arcLength(cnt, True)
                 if perimeter > 0:
                     circularity = 4 * np.pi * area / (perimeter * perimeter)
-                    if circularity > 0.4:
+                    if circularity > 0.35:
                         M = cv2.moments(cnt)
                         if M["m00"] > 0:
                             cx = int(M["m10"] / M["m00"])
@@ -75,7 +78,6 @@ class AimAI:
         return targets
     
     def aim_and_click(self, target_x, target_y, monitor):
-        """Move mouse to target and click"""
         screen_x = monitor["left"] + target_x + self.aim_offset_x
         screen_y = monitor["top"] + target_y + self.aim_offset_y
         
@@ -83,13 +85,12 @@ class AimAI:
         new_x = int(current_x * self.smoothing + screen_x * (1 - self.smoothing))
         new_y = int(current_y * self.smoothing + screen_y * (1 - self.smoothing))
         
-        pyautogui.moveTo(new_x, new_y, duration=0.01)
-        time.sleep(0.01)
+        pyautogui.moveTo(new_x, new_y, duration=0.008)
+        time.sleep(0.005)
         pyautogui.click()
         self.shots_fired += 1
         
     def run(self):
-        """Main loop"""
         print("=" * 50)
         print("LIBREAIM AI STARTED (Yellow Target Mode)")
         print("=" * 50)
@@ -97,11 +98,7 @@ class AimAI:
         print("  - Move mouse to TOP-LEFT corner to STOP")
         print("  - Press Ctrl+C in terminal to stop")
         print()
-        print("1. Start LibreAim")
-        print("2. Select a scenario (e.g. Random targets)")
-        print("3. Click Play so targets appear")
-        print("4. Keep the game window visible and unpaused")
-        print()
+        print("Debug images saved to /tmp/aim_debug_*.png")
         print("Starting in 3 seconds...")
         time.sleep(3)
         
@@ -117,37 +114,36 @@ class AimAI:
                 
                 if targets:
                     tx, ty, area = targets[0]
-                    print(f"Detected {len(targets)} target(s) | Largest at ({tx}, {ty}) size={int(area)}", end="\r")
+                    print(f"Detected {len(targets)} target(s) | at ({tx}, {ty}) size={int(area)}   ", end="\r")
                     
                     if (time.time() - last_click_time) > self.click_delay:
                         if len(self.last_positions) == 0 or \
-                           abs(tx - self.last_positions[-1][0]) > 10 or \
-                           abs(ty - self.last_positions[-1][1]) > 10:
+                           abs(tx - self.last_positions[-1][0]) > 12 or \
+                           abs(ty - self.last_positions[-1][1]) > 12:
                             
                             self.aim_and_click(tx, ty, monitor)
                             self.last_positions.append((tx, ty))
                             last_click_time = time.time()
-                            print(f"\n>>> SHOT at ({tx}, {ty}) | Total shots: {self.shots_fired}")
+                            print(f"\n>>> SHOT at ({tx}, {ty}) | Total: {self.shots_fired}")
                 else:
-                    if frame_count % 30 == 0:
-                        print("No targets detected... (is the game running and unpaused?)", end="\r")
+                    if frame_count % 20 == 0:
+                        print("No targets detected...                                      ", end="\r")
                 
-                time.sleep(0.01)
+                time.sleep(0.008)
                 
         except KeyboardInterrupt:
             print("\n\nStopped by user.")
         except pyautogui.FailSafeException:
-            print("\n\nStopped by failsafe (mouse moved to corner).")
+            print("\n\nStopped by failsafe (mouse to corner).")
         finally:
             self.running = False
-            print(f"\nTotal shots fired: {self.shots_fired}")
+            print(f"\nTotal shots: {self.shots_fired}")
+            print("Check /tmp/aim_debug_mask.png and /tmp/aim_debug_screen.png")
             print("AI stopped.")
 
 def main():
     print("LibreAim AI - Yellow Target Detector")
     print("-" * 40)
-    print("This version is tuned for LibreAim's yellow spheres.")
-    print()
     input("Press Enter to start...")
     
     ai = AimAI()
