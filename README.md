@@ -1,46 +1,54 @@
-# Aim Trainer AI (External Computer Vision Bot)
+# LibreAim AI - Learns from Your Gameplay
 
-A Python AI that looks at your screen, detects targets in LibreAim (or other aim trainers), and automatically aims + clicks.
+A general AI that learns target appearance from your clicks, then plays by itself.
 
-## Requirements
+## How it works
 
-- Python 3.8+
-- Linux
-- LibreAim running and visible (windowed mode recommended)
+1. **Learn mode**: You play normally. Every time you click a target, it records the color.
+2. **Play mode**: It uses the colors it learned to find and click targets automatically.
 
-## Quick Start (with venv)
+## Setup
 
 ```bash
-# 1. Make scripts executable
-chmod +x setup.sh run.sh
-
-# 2. Create virtual environment and install dependencies
+chmod +x setup.sh learn.sh run.sh
 ./setup.sh
+```
 
-# 3. Start LibreAim (windowed mode)
+## Step 1: Learn from your gameplay
 
-# 4. Run the AI
+```bash
+./learn.sh
+```
+
+- Start LibreAim and begin a scenario (Random targets is fine)
+- Play normally — click the yellow targets
+- Click at least **20–30 targets**
+- Press `Ctrl+C` in the terminal when done
+
+It saves what it learned to `learned_params.json`.
+
+## Step 2: Let the AI play
+
+```bash
 ./run.sh
 ```
 
-## Manual venv method
+- Start LibreAim and begin a scenario
+- The AI will detect targets using the colors it learned from you
+- To stop: move mouse to top-left corner or press `Ctrl+C`
 
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python aim_ai.py
-```
+## Tips
 
-## Controls
+- The more targets you click during learning, the better it gets
+- If targets change color, run `./learn.sh` again
+- Works best in windowed mode
+- Keep the game window visible and unpaused
 
-- **To stop**: Move mouse to the **top-left corner** of the screen, or press `Ctrl+C`.
+## Files
 
-## Tips for LibreAim
-
-- Run LibreAim in **windowed mode** for better detection.
-- Choose option **1** (red targets) when the AI starts.
-- If detection is poor, edit the color ranges or size limits at the top of `aim_ai.py`.
+- `learn.py` — records your clicks and builds parameters
+- `aim_ai.py` — plays using learned parameters
+- `learned_params.json` — created after learning
 
 ## License
 
