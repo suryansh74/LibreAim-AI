@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Aim Trainer AI - Uses parameters learned from your gameplay.
+Aim Trainer AI - uses learned parameters.
+Improved screen capture.
 """
 
 import cv2
@@ -9,8 +10,9 @@ import pyautogui
 import mss
 import time
 import json
-import sys
 import os
+import subprocess
+import sys
 from collections import deque
 
 pyautogui.FAILSAFE = True
@@ -25,15 +27,15 @@ class AimAI:
         self.shots_fired = 0
         self.last_positions = deque(maxlen=5)
         
-        self.min_target_size = 6
-        self.max_target_size = 250
-        self.smoothing = 0.35
-        self.click_delay = 0.07
+        self.min_target_size = 8
+        self.max_target_size = 300
+        self.smoothing = 0.3
+        self.click_delay = 0.08
         
-        # Load learned parameters
+        self.use_scrot = self._check_scrot()
+        
         if not os.path.exists(PARAMS_FILE):
-            print(f"ERROR: {PARAMS_FILE} not found.")
-            print("Run the learning mode first: python learn.py")
+            print(f"ERROR: {PARAMS_FILE} not found. Run ./learn.sh first.")
             sys.exit(1)
         
         with open(PARAMS_FILE) as f:
@@ -41,10 +43,27 @@ class AimAI:
         
         self.lower_hsv = np.array(params["lower_hsv"])
         self.upper_hsv = np.array(params["upper_hsv"])
-        print(f"Loaded learned params from {params['sample_count']} clicks")
-        print(f"HSV range: {self.lower_hsv} -> {self.upper_hsv}")
+        print(f"Loaded params from {params['sample_count']} clicks")
+        print(f"HSV: {self.lower_hsv.astype(int)} -> {self.upper_hsv.astype(int)}")
         
+    def _check_scrot(self):
+        try:
+            subprocess.run(["scrot", "--version"], capture_output=True, check=False)
+            return True
+        except FileNotFoundError:
+            return False
+    
     def get_screen(self):
+        if self.use_scrot:
+            try:
+                path = "/tmp/aim_capture.png"
+                subprocess.run(["scrot", "-o", path], capture_output=True, check=True, timeout=2)
+                img = cv2.imread(path)
+                if img is not None and img.mean() > 5:
+                    return img, self.sct.monitors[1]
+            except Exception:
+                pass
+        
         monitor = self.sct.monitors[1]
         screenshot = self.sct.grab(monitor)
         img = np.array(screenshot)
@@ -55,7 +74,7 @@ class AimAI:
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, self.lower_hsv, self.upper_hsv)
         
-        kernel = np.ones((4, 4), np.uint8)
+        kernel = np.ones((5, 5), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         
@@ -74,24 +93,28 @@ class AimAI:
         targets.sort(key=lambda t: t[2], reverse=True)
         return targets
     
-    def aim_and_click(self, target_x, target_y, monitor):
-        screen_x = monitor["left"] + target_x
-        screen_y = monitor["top"] + target_y
+    def aim_and_click(self, tx, ty, monitor):
+        screen_x = monitor["left"] + tx
+        screen_y = monitor["top"] + ty
         
-        current_x, current_y = pyautogui.position()
-        new_x = int(current_x * self.smoothing + screen_x * (1 - self.smoothing))
-        new_y = int(current_y * self.smoothing + screen_y * (1 - self.smoothing))
+        cx, cy = pyautogui.position()
+        nx = int(cx * self.smoothing + screen_x * (1 - self.smoothing))
+        ny = int(cy * self.smoothing + screen_y * (1 - self.smoothing))
         
-        pyautogui.moveTo(new_x, new_y, duration=0.006)
+        pyautogui.moveTo(nx, ny, duration=0.005)
         pyautogui.click()
         self.shots_fired += 1
         
     def run(self):
         print("=" * 50)
-        print("AI PLAYING (using learned parameters)")
+        print("AI PLAYING")
         print("=" * 50)
-        print("Move mouse to TOP-LEFT corner to stop")
-        print("Starting in 3 seconds...")
+        if self.use_scrot:
+            print("Capture: scrot")
+        else:
+            print("Capture: mss (install scrot for better results)")
+        print("Stop: mouse to top-left corner or Ctrl+C")
+        print("Starting in 3s...")
         time.sleep(3)
         
         self.running = True
@@ -104,31 +127,30 @@ class AimAI:
                 
                 if targets:
                     tx, ty, area = targets[0]
-                    print(f"Target at ({tx}, {ty}) size={int(area)}   ", end="\r")
+                    print(f"Target ({tx}, {ty}) size={int(area)}   ", end="\r")
                     
                     if time.time() - last_click > self.click_delay:
-                        if len(self.last_positions) == 0 or \
-                           abs(tx - self.last_positions[-1][0]) > 10 or \
-                           abs(ty - self.last_positions[-1][1]) > 10:
+                        if not self.last_positions or \
+                           abs(tx - self.last_positions[-1][0]) > 15 or \
+                           abs(ty - self.last_positions[-1][1]) > 15:
                             
                             self.aim_and_click(tx, ty, monitor)
                             self.last_positions.append((tx, ty))
                             last_click = time.time()
-                            print(f"\n>>> SHOT ({tx}, {ty}) | Total: {self.shots_fired}")
+                            print(f"\n>>> SHOT ({tx}, {ty}) | {self.shots_fired}")
                 else:
-                    print("Searching...                                              ", end="\r")
+                    print("Searching...                              ", end="\r")
                 
-                time.sleep(0.008)
+                time.sleep(0.015)
                 
         except KeyboardInterrupt:
-            print("\nStopped by user.")
+            print("\nStopped.")
         except pyautogui.FailSafeException:
-            print("\nStopped (mouse to corner).")
+            print("\nFailsafe.")
         finally:
-            print(f"\nTotal shots: {self.shots_fired}")
+            print(f"\nShots: {self.shots_fired}")
 
 def main():
-    import sys
     AimAI().run()
 
 if __name__ == "__main__":
