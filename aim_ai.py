@@ -23,17 +23,16 @@ class AimAI:
         self.last_positions = deque(maxlen=5)
         
         # Detection settings
-        self.min_target_size = 12
-        self.max_target_size = 120
+        self.min_target_size = 8
+        self.max_target_size = 200
         self.aim_offset_x = 0
         self.aim_offset_y = 0
-        self.smoothing = 0.5
-        self.click_delay = 0.06
+        self.smoothing = 0.4
+        self.click_delay = 0.08
         
-        # Yellow target detection (LibreAim spheres)
-        # HSV range for yellow/gold
-        self.lower_yellow = np.array([15, 80, 150])
-        self.upper_yellow = np.array([40, 255, 255])
+        # Broader yellow/gold range for LibreAim
+        self.lower_yellow = np.array([10, 50, 100])
+        self.upper_yellow = np.array([45, 255, 255])
         
     def get_screen(self):
         """Capture the primary monitor"""
@@ -51,7 +50,7 @@ class AimAI:
         mask = cv2.inRange(hsv, self.lower_yellow, self.upper_yellow)
         
         # Clean up
-        kernel = np.ones((4, 4), np.uint8)
+        kernel = np.ones((3, 3), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         
@@ -62,18 +61,16 @@ class AimAI:
         for cnt in contours:
             area = cv2.contourArea(cnt)
             if self.min_target_size**2 < area < self.max_target_size**2:
-                # Circularity check (spheres should be roughly circular)
                 perimeter = cv2.arcLength(cnt, True)
                 if perimeter > 0:
                     circularity = 4 * np.pi * area / (perimeter * perimeter)
-                    if circularity > 0.5:  # Reasonably circular
+                    if circularity > 0.4:
                         M = cv2.moments(cnt)
                         if M["m00"] > 0:
                             cx = int(M["m10"] / M["m00"])
                             cy = int(M["m01"] / M["m00"])
                             targets.append((cx, cy, area))
         
-        # Prefer larger targets
         targets.sort(key=lambda t: t[2], reverse=True)
         return targets
     
@@ -86,8 +83,8 @@ class AimAI:
         new_x = int(current_x * self.smoothing + screen_x * (1 - self.smoothing))
         new_y = int(current_y * self.smoothing + screen_y * (1 - self.smoothing))
         
-        pyautogui.moveTo(new_x, new_y, duration=0.008)
-        time.sleep(0.008)
+        pyautogui.moveTo(new_x, new_y, duration=0.01)
+        time.sleep(0.01)
         pyautogui.click()
         self.shots_fired += 1
         
@@ -100,44 +97,50 @@ class AimAI:
         print("  - Move mouse to TOP-LEFT corner to STOP")
         print("  - Press Ctrl+C in terminal to stop")
         print()
-        print("Make sure LibreAim is visible (windowed mode recommended)")
+        print("1. Start LibreAim")
+        print("2. Select a scenario (e.g. Random targets)")
+        print("3. Click Play so targets appear")
+        print("4. Keep the game window visible and unpaused")
+        print()
         print("Starting in 3 seconds...")
         time.sleep(3)
         
         self.running = True
         last_click_time = 0
+        frame_count = 0
         
         try:
             while self.running:
                 img, monitor = self.get_screen()
                 targets = self.detect_targets(img)
+                frame_count += 1
                 
                 if targets:
-                    print(f"Detected {len(targets)} target(s) | Largest at ({targets[0][0]}, {targets[0][1]})", end="\r")
-                    if (time.time() - last_click_time) > self.click_delay:
                     tx, ty, area = targets[0]
+                    print(f"Detected {len(targets)} target(s) | Largest at ({tx}, {ty}) size={int(area)}", end="\r")
                     
-                    # Avoid re-clicking same spot
-                    if len(self.last_positions) == 0 or \
-                       abs(tx - self.last_positions[-1][0]) > 8 or \
-                       abs(ty - self.last_positions[-1][1]) > 8:
-                        
-                        self.aim_and_click(tx, ty, monitor)
-                        self.last_positions.append((tx, ty))
-                        last_click_time = time.time()
-                        
-                        print(f"\nShot at ({tx}, {ty}) | Targets: {len(targets)} | Total shots: {self.shots_fired}")
-                
+                    if (time.time() - last_click_time) > self.click_delay:
+                        if len(self.last_positions) == 0 or \
+                           abs(tx - self.last_positions[-1][0]) > 10 or \
+                           abs(ty - self.last_positions[-1][1]) > 10:
+                            
+                            self.aim_and_click(tx, ty, monitor)
+                            self.last_positions.append((tx, ty))
+                            last_click_time = time.time()
+                            print(f"\n>>> SHOT at ({tx}, {ty}) | Total shots: {self.shots_fired}")
                 else:
-                    print("No targets detected... (make sure game is unpaused and window is visible)", end="\r")
+                    if frame_count % 30 == 0:
+                        print("No targets detected... (is the game running and unpaused?)", end="\r")
+                
+                time.sleep(0.01)
                 
         except KeyboardInterrupt:
-            print("\nStopped by user.")
+            print("\n\nStopped by user.")
         except pyautogui.FailSafeException:
-            print("\nStopped by failsafe (mouse moved to corner).")
+            print("\n\nStopped by failsafe (mouse moved to corner).")
         finally:
             self.running = False
-            print(f"\nTotal shots: {self.shots_fired}")
+            print(f"\nTotal shots fired: {self.shots_fired}")
             print("AI stopped.")
 
 def main():
@@ -145,8 +148,7 @@ def main():
     print("-" * 40)
     print("This version is tuned for LibreAim's yellow spheres.")
     print()
-    print("Press Enter to start...")
-    input()
+    input("Press Enter to start...")
     
     ai = AimAI()
     ai.run()
