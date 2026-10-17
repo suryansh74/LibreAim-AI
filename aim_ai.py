@@ -17,7 +17,7 @@ pyautogui.PAUSE = 0.001
 
 class AimAI:
     def __init__(self):
-        self.sct = mss.mss()
+        self.sct = mss.MSS()
         self.running = False
         self.shots_fired = 0
         self.last_positions = deque(maxlen=5)
@@ -112,7 +112,9 @@ class AimAI:
                 img, monitor = self.get_screen()
                 targets = self.detect_targets(img)
                 
-                if targets and (time.time() - last_click_time) > self.click_delay:
+                if targets:
+                    print(f"Detected {len(targets)} target(s) | Largest at ({targets[0][0]}, {targets[0][1]})", end="\r")
+                    if (time.time() - last_click_time) > self.click_delay:
                     tx, ty, area = targets[0]
                     
                     # Avoid re-clicking same spot
@@ -124,9 +126,10 @@ class AimAI:
                         self.last_positions.append((tx, ty))
                         last_click_time = time.time()
                         
-                        print(f"Shot at ({tx}, {ty}) | Targets visible: {len(targets)} | Shots: {self.shots_fired}")
+                        print(f"\nShot at ({tx}, {ty}) | Targets: {len(targets)} | Total shots: {self.shots_fired}")
                 
-                time.sleep(0.008)
+                else:
+                    print("No targets detected... (make sure game is unpaused and window is visible)", end="\r")
                 
         except KeyboardInterrupt:
             print("\nStopped by user.")
